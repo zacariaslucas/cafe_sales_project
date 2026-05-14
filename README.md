@@ -53,7 +53,7 @@ Dataset obtained from Kaggle containing **10.000** records with the following in
 
 - **Revenue distribution across payment methods is remarkably balanced**.
 - Cash is slightly less used than digital methods, which may reflect a gradual shift toward digital payments.
-- The high percentage of `Unknown` payment methods suggests potential data collection limitations that could affect deeper behavioral analysis.
+- The high percentage of 'Unknown' payment methods suggests potential data collection limitations that could affect deeper behavioral analysis.
 
 | payment_method | payment_method_percentage | total_spent_per_payment_method | total_revenue_percentage |
 |----------------|---------------------------|--------------------------------|--------------------------|
