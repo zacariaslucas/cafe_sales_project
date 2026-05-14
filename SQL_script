@@ -1,0 +1,281 @@
+-- SQL data cleaning and transformation process designed to prepare the dataset for exploratory data analysis and business-oriented insights.
+
+
+-- New table created to keep the original one
+
+SELECT *
+INTO cafe_sales_clean
+FROM cafe_sales;
+
+-- Looking for duplicates
+
+WITH duplicates_cte AS (
+	SELECT *,
+	COUNT(*) OVER(PARTITION BY item, quantity, price_per_unit, total_spent, payment_method, location, transaction_date) AS duplicates
+    FROM cafe_sales_clean
+	WHERE item IS NOT NULL 
+		AND quantity IS NOT NULL 
+		AND price_per_unit IS NOT NULL 
+		AND total_spent IS NOT NULL 
+		AND payment_method IS NOT NULL
+		AND location IS NOT NULL
+		AND transaction_date IS NOT NULL
+)
+SELECT * FROM duplicates_cte
+WHERE duplicates>1;
+
+-- Some transactions share identical info with another one, but since their IDs are different, it's decided to considere them as unique transactions
+
+-- Transaction_id as PK
+
+UPDATE cafe_sales_clean
+SET transaction_id = CAST(SUBSTRING(transaction_id,CHARINDEX('_', transaction_id) + 1, LEN(transaction_id)) AS INT);
+
+ALTER TABLE cafe_sales_clean
+ALTER COLUMN transaction_id INT NOT NULL;
+
+ALTER TABLE cafe_sales_clean
+ADD CONSTRAINT pk_cafe_sales_clean
+PRIMARY KEY (transaction_id);
+
+-- ERROR, UNKNOWN and NULL as 'Unknown'
+
+SELECT DISTINCT(item) FROM cafe_sales_clean
+ORDER BY item;
+
+UPDATE cafe_sales_clean
+SET item = 'Unknown'
+WHERE item IN ('error','unknown') OR item IS NULL;
+
+SELECT DISTINCT(payment_method) FROM cafe_sales_clean
+ORDER BY payment_method;
+
+UPDATE cafe_sales_clean
+SET payment_method = 'Unknown'
+WHERE payment_method IN ('error','unknown') OR payment_method IS NULL;
+
+SELECT DISTINCT(location) FROM cafe_sales_clean
+ORDER BY location;
+
+UPDATE cafe_sales_clean
+SET location = 'Unknown'
+WHERE location IN ('error','unknown') OR location IS NULL;
+
+-- Making sure numerical data makes sense
+
+SELECT * FROM cafe_sales_clean
+WHERE price_per_unit<0;
+
+SELECT * FROM cafe_sales_clean
+WHERE quantity<0;
+
+SELECT * FROM cafe_sales_clean
+WHERE total_spent<0;
+
+SELECT * FROM cafe_sales_clean
+WHERE price_per_unit*quantity != total_spent;
+
+-- Same price_per_unit for each item is noticed, so its corresponding value is given to those having NULLs
+
+UPDATE cafe_sales_clean
+SET price_per_unit = (SELECT DISTINCT price_per_unit FROM cafe_sales_clean WHERE item='tea' AND price_per_unit IS NOT NULL)
+WHERE item='tea';
+
+UPDATE cafe_sales_clean
+SET price_per_unit = (SELECT DISTINCT price_per_unit FROM cafe_sales_clean WHERE item='cookie' AND price_per_unit IS NOT NULL)
+WHERE item='cookie';
+
+UPDATE cafe_sales_clean
+SET price_per_unit = (SELECT DISTINCT price_per_unit FROM cafe_sales_clean WHERE item='smoothie' AND price_per_unit IS NOT NULL)
+WHERE item='smoothie';
+
+UPDATE cafe_sales_clean
+SET price_per_unit = (SELECT DISTINCT price_per_unit FROM cafe_sales_clean WHERE item='sandwich' AND price_per_unit IS NOT NULL)
+WHERE item='sandwich';
+
+UPDATE cafe_sales_clean
+SET price_per_unit = (SELECT DISTINCT price_per_unit FROM cafe_sales_clean WHERE item='salad' AND price_per_unit IS NOT NULL)
+WHERE item='salad';
+
+UPDATE cafe_sales_clean
+SET price_per_unit = (SELECT DISTINCT price_per_unit FROM cafe_sales_clean WHERE item='juice' AND price_per_unit IS NOT NULL)
+WHERE item='juice';
+
+UPDATE cafe_sales_clean
+SET price_per_unit = (SELECT DISTINCT price_per_unit FROM cafe_sales_clean WHERE item='cake' AND price_per_unit IS NOT NULL)
+WHERE item='cake';
+
+UPDATE cafe_sales_clean
+SET price_per_unit = (SELECT DISTINCT price_per_unit FROM cafe_sales_clean WHERE item='coffee' AND price_per_unit IS NOT NULL)
+WHERE item='coffee';
+
+-- Since some items have unique prices across all items, their corresponding item value is given to those that now have an unknown value
+
+SELECT DISTINCT price_per_unit, item FROM cafe_sales_clean
+ORDER BY price_per_unit;
+
+-- Cookie is the only item with a price of 10
+
+UPDATE cafe_sales_clean
+SET item='Cookie'
+WHERE price_per_unit=10 AND item='Unknown';
+
+-- Tea is the only item with a price of 15
+
+UPDATE cafe_sales_clean
+SET item='Tea'
+WHERE price_per_unit=15 AND item='Unknown';
+
+-- Coffee is the only item with a price of 20
+
+UPDATE cafe_sales_clean
+SET item='Coffee'
+WHERE price_per_unit=20 AND item='Unknown';
+
+-- Salad is the only item with a price of 50
+
+UPDATE cafe_sales_clean
+SET item='Salad'
+WHERE price_per_unit=50 AND item='Unknown';
+
+-- Some unknown item transactions remain because of uncertainty
+-- The unknown item with a price of 30 is either cake or juice
+-- And the unknown item with a price of 40 is either smoothie or sandwich
+
+-- Since price_per_unit*quantity=total_spent, some NULLs can actually be updated
+
+UPDATE cafe_sales_clean
+SET quantity=total_spent/price_per_unit
+WHERE quantity IS NULL;
+
+UPDATE cafe_sales_clean
+SET price_per_unit=total_spent/quantity
+WHERE price_per_unit IS NULL;
+
+UPDATE cafe_sales_clean
+SET total_spent=price_per_unit*quantity
+WHERE total_spent IS NULL;
+
+-- 26 transaction still have missing data about quantity and prices, but most of the NULLs have already been fixed
+
+SELECT * FROM cafe_sales_clean
+WHERE quantity IS NULL OR price_per_unit IS NULL OR total_spent IS NULL;
+
+
+-- Even though there are still some missing values, the dataset is now giving more value to be analisys
+
+SELECT COUNT(*) FROM cafe_sales_clean;    -- A total of 10.000 transactions were made
+
+SELECT SUM(total_spent) FROM cafe_sales_clean;    -- Total revenue of 890.960 dollars
+
+SELECT SUM(quantity) FROM cafe_sales_clean;   -- A total of 30.180 products were sold
+
+SELECT SUM(total_spent)/COUNT(*) FROM cafe_sales_clean;   -- 89 dollars is the average amount spent in a transaction
+
+SELECT SUM(quantity)/COUNT(*) FROM cafe_sales_clean;   -- 3 items is the average amount of products sold in a transaction
+
+-- Percentage of transactions per item
+
+SELECT 
+	item,
+	CAST(
+		100.0*COUNT(*) / (SELECT COUNT(*) FROM cafe_sales_clean) 
+		AS DECIMAL(10,2)
+	) item_percentage,
+	SUM(total_spent) total_spent_per_item,
+	ROUND(100.0*SUM(total_spent) / (SELECT SUM(total_spent) FROM cafe_sales_clean),2) total_revenue_percentage
+FROM cafe_sales_clean
+GROUP BY item
+ORDER BY total_revenue_percentage DESC;
+
+-- Percentage of transactions per payment_method
+
+SELECT 
+	payment_method, 
+	CAST(
+		100.0*COUNT(*) / (SELECT COUNT(*) FROM cafe_sales_clean) 
+		AS DECIMAL(10,2)
+	) payment_method_percentage,
+	SUM(total_spent) total_spent_per_payment_method,
+	ROUND(100.0*SUM(total_spent) / (SELECT SUM(total_spent) FROM cafe_sales_clean),2) total_revenue_percentage
+FROM cafe_sales_clean
+GROUP BY payment_method
+ORDER BY total_revenue_percentage DESC;
+
+-- Percentage of transactions per location
+
+SELECT 
+	location, 
+	CAST(
+		100.0*COUNT(*) / (SELECT COUNT(*) FROM cafe_sales_clean) 
+		AS DECIMAL(10,2)
+	) location_percentage,
+	SUM(total_spent) total_spent_per_location,
+	ROUND(100.0*SUM(total_spent) / (SELECT SUM(total_spent) FROM cafe_sales_clean),2) total_revenue_percentage
+FROM cafe_sales_clean
+GROUP BY location
+ORDER BY total_revenue_percentage DESC;
+
+-- Comparing location influence in total_revenue for each item
+
+SELECT 
+	location,
+	item,
+	ROUND(100.0*SUM(total_spent) / (SELECT SUM(total_spent) FROM cafe_sales_clean),2) total_revenue_percentage
+FROM cafe_sales_clean
+WHERE location != 'Unknown' AND item != 'Unknown' 
+GROUP BY location, item
+ORDER BY total_revenue_percentage DESC;
+
+-- Comparing location influence in number of transactions by item
+
+SELECT 
+	location,
+	item,
+	COUNT(*) nr_transactions
+FROM cafe_sales_clean
+WHERE location != 'Unknown' AND item != 'Unknown' 
+GROUP BY location, item
+ORDER BY nr_transactions DESC
+
+-- Comparing location influence in the number of products sold
+
+SELECT 
+	location,
+	SUM(quantity) nr_products
+FROM cafe_sales_clean
+WHERE location != 'Unknown' 
+GROUP BY location
+ORDER BY nr_products DESC
+
+-- Percentage of transactions per month
+
+SELECT 
+	DATENAME(MONTH, transaction_date) month, 
+	CAST(
+		100.0*COUNT(*) / (SELECT COUNT(*) FROM cafe_sales_clean) 
+		AS DECIMAL(10,2)
+	) month_percentage,
+	SUM(total_spent) total_spent_per_month,
+	ROUND(100.0*SUM(total_spent) / (SELECT SUM(total_spent) FROM cafe_sales_clean),2) total_revenue_percentage
+FROM cafe_sales_clean
+GROUP BY DATENAME(MONTH, transaction_date)
+ORDER BY total_revenue_percentage DESC;
+
+--  Total_spent frequences (histogram)
+
+SELECT
+	DISTINCT total_spent,
+	COUNT(*) nr_transactions_per_total_spent
+FROM cafe_sales_clean
+WHERE total_spent IS NOT NULL
+GROUP BY total_spent
+ORDER BY 1 
+
+--Median value of total_spent
+
+SELECT DISTINCT
+    PERCENTILE_CONT(0.5)
+    WITHIN GROUP (ORDER BY total_spent)
+    OVER () AS median
+FROM cafe_sales_clean;
